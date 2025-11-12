@@ -1,5 +1,6 @@
 // Use NFHS-5 IR dataset
 
+keep if v481 == 1 
 
 egen br_cer = rowtotal(sb79 sb80)
 
@@ -50,7 +51,7 @@ ta cr_and_br
 
 gen wt = v005/10000
 
-keep if v481 == 1
+
 
 gen residence = (v025 == 1)
 label define resid_lbl 0 "Rural" 1 "Urban"
@@ -80,6 +81,8 @@ asdoc fairlie sb80 age marriage religion caste v190 horm_contra bmi s720 s711 s7
 
 
 // Concentration Index and Concentration Curve
+egen rank = rank(v190) // Rank with respect to the contribution the woman is putting forward in a household
+gen rank_frac = rank / sum(v005) //percentile of wealth of each woman
 conindex sb79 [pw=wt] if residence==1, rankvar(rank_frac) limits(0)
 local ci_urb_cerv = string(r(C), "%6.3f")
 
