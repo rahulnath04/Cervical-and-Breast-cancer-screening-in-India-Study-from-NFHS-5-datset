@@ -41,56 +41,6 @@ ta s113
 egen media_cov = rowtotal(v157_new v158_new v159_new s113)
 recode media_cov (0 = 0 "No coverage")(1/4 = 1 "Coverage"), gen(media_cov_new)
 
-gen wt = v005/10000
-
-keep if v481 == 1
-
-// Logistic regression
-logistic sb79 v025 age marriage religion caste v190 horm_contra bmi s720 s711 s731h edu v151 media_cov_new [pw=wt]
-logistic sb80 v025 age marriage religion caste v190 horm_contra bmi s720 s711 s731h edu v151 media_cov_new [pw=wt]
-
-// Decomposition Analysis
-
-gen residence = (v025 == 1)
-label define resid_lbl 0 "Rural" 1 "Urban"
-label values residence resid_lbl
-
-fairlie sb79 age marriage religion caste v190 horm_contra bmi s720 s711 s731h edu v151 media_cov_new [pw=wt], by(residence) reps(500)
-
-fairlie sb80 age marriage religion caste v190 horm_contra bmi s720 s711 s731h edu v151 media_cov_new [pw=wt], by(residence) reps(500)
-
-// Concentration Index and Concentration Curve
-// Ordering the individuals based on their wealth index
-egen rank = rank(v190) // Rank with respect to the contribution the woman is putting forward in a household
-gen rank_frac = rank / sum(v005) //percentile of wealth of each woman
-
-ssc install conindex, replace
-// Conc Index
-
-capture noisily ssc install conindex, replace
-
-* Urban Cervical
-conindex cerv [pw=wt] if residence==1, rankvar(rank_frac) limits(0)
-local ci_urb_cerv = string(r(C), "%6.3f")
-
-* Rural Cervical
-conindex cerv [pw=wt] if residence==0, rankvar(rank_frac) limits(0)
-local ci_rur_cerv = string(r(C), "%6.3f")
-
-* Urban Breast
-conindex breast [pw=wt] if residence==1, rankvar(rank_frac) limits(0)
-local ci_urb_breast = string(r(C), "%6.3f")
-
-* Rural Breast
-conindex breast [pw=wt] if residence==0, rankvar(rank_frac) limits(0)
-local ci_rur_breast = string(r(C), "%6.3f")
-
-
-// Decomposition analysis 
-asdoc fairlie sb79 age marriage religion caste v190 horm_contra bmi s720 s711 s731h edu v151 media_cov_new [pw=wt], by(residence) reps(500) replace save(decomp_output.doc),landscape
-
-asdoc fairlie sb80 age marriage religion caste v190 horm_contra bmi s720 s711 s731h edu v151 media_cov_new [pw=wt], by(residence) reps(500) replace save(decomp_output_1.doc),landscape
-
 gen cr_or_br = (sb79 == 1 | sb80 == 1)
 ta cr_or_br
 
@@ -98,11 +48,152 @@ gen cr_and_br = (sb79 == 1 & sb80 == 1)
 ta cr_and_br
 
 
+gen wt = v005/10000
+
+keep if v481 == 1
+
+gen residence = (v025 == 1)
+label define resid_lbl 0 "Rural" 1 "Urban"
+label values residence resid_lbl
+
+// Logistic regression
+logistic sb79 v025 age marriage religion caste v190 horm_contra bmi s720 s711 s731h fruits edu v151 media_cov_new [pw=wt]
+logistic sb80 v025 age marriage religion caste v190 horm_contra bmi s720 s711 s731h fruits edu v151 media_cov_new [pw=wt]
+logistic cr_or_br v025 age marriage religion caste v190 horm_contra bmi s720 s711 s731h fruits edu v151 media_cov_new [pw=wt]
+logistic cr_and_br v025 age marriage religion caste v190 horm_contra bmi s720 s711 s731h fruits edu v151 media_cov_new [pw=wt]
+
+
+
+// Decomposition Analysis
+
+fairlie sb79 age marriage religion caste v190 horm_contra bmi s720 s711 s731h edu v151 media_cov_new [pw=wt], by(residence) reps(500)
+
+fairlie sb80 age marriage religion caste v190 horm_contra bmi s720 s711 s731h edu v151 media_cov_new [pw=wt], by(residence) reps(500)
+
+// Output: Decomposition analysis 
+asdoc fairlie sb79 age marriage religion caste v190 horm_contra bmi s720 s711 s731h edu v151 media_cov_new [pw=wt], by(residence) reps(500) replace save(decomp_output.doc),landscape
+
+asdoc fairlie sb80 age marriage religion caste v190 horm_contra bmi s720 s711 s731h edu v151 media_cov_new [pw=wt], by(residence) reps(500) replace save(decomp_output_1.doc),landscape
 
 
 
 
 
+// Concentration Index and Concentration Curve
+conindex sb79 [pw=wt] if residence==1, rankvar(rank_frac) limits(0)
+local ci_urb_cerv = string(r(C), "%6.3f")
 
+preserve
+keep if residence==1
+sort rank_frac
+egen tot_w = total(wt)
+gen double pop_share = wt / tot_w
+gen double cum_pop = sum(pop_share)
+gen double health_w = sb79 * wt
+egen double tot_health = total(health_w)
+replace tot_health = . if tot_health==0
+gen double cum_health = sum(health_w) / tot_health
+
+twoway ///
+ (line cum_health cum_pop, sort lwidth(medthick) lcolor(blue)) ///
+ (function y=x, range(0 1) lpattern(dash) lcolor(gs8)), ///
+ title("Urban — Cervical Screening") ///
+ ytitle("Cumulative share of screening", size(2.5)) ///
+ xtitle("", size(3)) /// no x label on top row
+ xlabel(, labsize(2) noticks nolabels) /// hide x-axis labels
+ ylabel(0(0.2)1, labsize(2)) ///
+ legend(off) ///
+ name(urb_cerv, replace)
+restore
+
+
+conindex sb79 [pw=wt] if residence==0, rankvar(rank_frac) limits(0)
+local ci_rur_cerv = string(r(C), "%6.3f")
+
+preserve
+    keep if residence==0
+    sort rank_frac
+    egen double tot_w = total(wt)
+    gen double pop_share = wt / tot_w
+    gen double cum_pop = sum(pop_share)
+    gen double health_w = sb79 * wt
+    egen double tot_health = total(health_w)
+    if tot_health==0 replace tot_health = 1
+    gen double cum_health = sum(health_w) / tot_health
+	
+    twoway ///
+    (line cum_health cum_pop, sort lwidth(medthick) lcolor(blue)) ///
+    (function y=x, range(0 1) lpattern(dash) lcolor(gs8)), ///
+    title("Rural — Cervical Screening") ///
+	ytitle("", size(3)) ///
+    xtitle("", size(3)) ///
+    xlabel(0(0.2)1, labsize(2)) ///
+    ylabel(, noticks nolabels) ///
+    legend(off) ///
+    name(rur_cerv, replace)
+
+restore
+
+
+conindex sb80 [pw=wt] if residence==1, rankvar(rank_frac) limits(0)
+local ci_urb_breast = string(r(C), "%6.3f")
+
+preserve
+keep if residence==1
+sort rank_frac
+egen tot_w = total(wt)
+gen double pop_share = wt / tot_w
+gen double cum_pop = sum(pop_share)
+gen double health_w = sb80 * wt
+egen double tot_health = total(health_w)
+replace tot_health = . if tot_health==0
+gen double cum_health = sum(health_w) / tot_health
+
+twoway ///
+ (line cum_health cum_pop, sort lwidth(medthick) lcolor(blue)) ///
+ (function y=x, range(0 1) lpattern(dash) lcolor(gs8)), ///
+ title("Urban — Breast Screening") ///
+ ytitle("Cumulative share of screening", size(2.5)) ///
+ xtitle("Cumulative share of population", size(2.5)) ///
+ xlabel(0(0.2)1, labsize(2)) ///
+ ylabel(0(0.2)1, labsize(2)) ///
+ legend(off) ///
+ name(urb_breast, replace)
+restore
+
+conindex sb80 [pw=wt] if residence==0, rankvar(rank_frac) limits(0)
+local ci_rur_breast = string(r(C), "%6.3f")
+
+preserve
+keep if residence==0
+sort rank_frac
+egen tot_w = total(wt)
+gen double pop_share = wt / tot_w
+gen double cum_pop = sum(pop_share)
+gen double health_w = sb80 * wt
+egen double tot_health = total(health_w)
+replace tot_health = . if tot_health==0
+gen double cum_health = sum(health_w) / tot_health
+
+twoway ///
+ (line cum_health cum_pop, sort lwidth(medthick) lcolor(blue)) ///
+ (function y=x, range(0 1) lpattern(dash) lcolor(gs8)), ///
+ title("Rural — Breast Screening") ///
+ ytitle("", size(3)) ///
+ xtitle("Cumulative share of population", size(3)) ///
+ xlabel(0(0.2)1, labsize(2)) ///
+ ylabel(, noticks nolabels) ///
+ legend(off) ///
+ name(rur_breast, replace)
+restore
+
+graph combine urb_cerv rur_cerv urb_breast rur_breast, ///
+    cols(2) ///
+    title("Concentration Curves by Residence and Cancer Type") ///
+    subtitle("Dashed = Equality | Solid = Observed") ///
+    ycommon xcommon ///
+    imargin(2 2 2 2) ///
+    iscale(1) ///
+    name(conc_final, replace)
 
 
